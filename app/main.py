@@ -9,6 +9,7 @@ load_dotenv()
 
 API_KEY = os.getenv("OPENROUTER_API_KEY")
 BASE_URL = os.getenv("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1")
+LLM_MODEL = os.getenv("LLM_MODEL", default="minimax/minimax-m3:free")
 
 
 def main():
@@ -22,8 +23,7 @@ def main():
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
     chat = client.chat.completions.create(
-        # model="anthropic/claude-haiku-4.5",
-        model="minimax/minimax-m3:free",
+        model=LLM_MODEL,
         messages=[{"role": "user", "content": args.p}],
         extra_body={"reasoning": {"enabled": True}}
     )
