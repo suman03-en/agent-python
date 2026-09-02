@@ -32,7 +32,7 @@ def main():
         # model="anthropic/claude-haiku-4.5",
         messages=[{"role": "user", "content": args.p}],
         extra_body={"reasoning": {"enabled": True}},
-        tools={
+        tools=[{
                 "type": "function",
                 "function": {
                     "name": "Read",
@@ -49,6 +49,7 @@ def main():
                     }
                 }
             }
+        ]
     )
 
     if not chat.choices or len(chat.choices) == 0:
