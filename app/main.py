@@ -20,8 +20,12 @@ else:
     LLM_MODEL = "anthropic/claude-haiku-4.5"
 
 def read_file(file_path: str) -> str:
-    with open(file_path, "r") as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         return f.read()
+
+def write_files(file_path: str, content: str):
+    with open(file_path, 'w', encoding="utf-8") as f:
+        f.write(content)
 
 def main():
     p = argparse.ArgumentParser()
@@ -57,7 +61,28 @@ def main():
                         "required": ["file_path"]
                         }
                     }
-                }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "Write",
+                        "description": "Write content to a file",
+                        "parameters": {
+                        "type": "object",
+                        "required": ["file_path", "content"],
+                        "properties": {
+                            "file_path": {
+                            "type": "string",
+                            "description": "The path of the file to write to"
+                            },
+                            "content": {
+                            "type": "string",
+                            "description": "The content to write to the file"
+                            }
+                        }
+                        }
+                    }
+                    }
             ]
         )
 
@@ -70,6 +95,10 @@ def main():
 
         if not message.tool_calls or len(message.tool_calls) == 0:
             print(message.content)
+            #uncomment this to see how chains of llm calls is done
+            # for message in messages:
+            #     print(message.get("content"))
+            #     print("#### another message content #####")
             break
 
         for tool_call in message.tool_calls:
@@ -86,6 +115,19 @@ def main():
                     "tool_call_id": tool_call.id,
                     "content": file_contents
                 })
+
+            elif function_name == "Write":
+                file_path = arguments.get("file_path")
+                content = arguments.get("content")
+                if not file_path:
+                    raise RuntimeError("file_path argument is required for write function")
+                write_files(file_path, content)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": content
+                })
+
             else:
                 raise RuntimeError(f"Unknown function call: {function_name}")
         
