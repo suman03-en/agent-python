@@ -1,34 +1,59 @@
-[![progress-banner](https://backend.codecrafters.io/progress/claude-code/54226d86-4ece-4bb8-b951-9e6c7100a12a)](https://app.codecrafters.io/users/suman03-en?r=2qF)
+# AI Assistant
 
-This is a starting point for Python solutions to the
-["Build Your own Claude Code" Challenge](https://codecrafters.io/challenges/claude-code).
+A lightweight command-line coding assistant built in Python. It sends prompts
+to an OpenAI-compatible API and can inspect files, write changes, and execute
+shell commands through tool calls.
 
-Claude Code is an AI coding assistant that uses Large Language Models (LLMs) to
-understand code and perform actions through tool calls. In this challenge,
-you'll build your own Claude Code from scratch by implementing an LLM-powered
-coding assistant.
+This project was built as a solution for the CodeCrafters Claude Code challenge.
 
-Along the way you'll learn about HTTP RESTful APIs, OpenAI-compatible tool
-calling, agent loop, and how to integrate multiple tools into an AI assistant.
+## Features
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+- File reading through the `Read` tool
+- File writing through the `Write` tool
+- Shell command execution through the `Bash` tool
+- Configurable OpenRouter-compatible model and API endpoint
+- Local testing with a free model when `LOCAL=true`
 
-# Passing the first stage
+## Requirements
 
-The entry point for your `claude-code` implementation is in `app/main.py`. Study
-and uncomment the relevant code, and submit to pass the first stage:
+- Python 3.14 or newer
+- `uv`
+- An OpenRouter API key
 
-```sh
-codecrafters submit
+## Setup
+
+Create a `.env` file in the project root:
+
+```env
+OPENROUTER_API_KEY=your_api_key
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
 
-# Stage 2 & beyond
+Install the project dependencies:
 
-Note: This section is for stages 2 and beyond.
+```sh
+uv sync
+```
 
-1. Ensure you have `uv` installed locally.
-2. Run `./your_program.sh` to run your program, which is implemented in
-   `app/main.py`.
-3. Run `codecrafters submit` to submit your solution to CodeCrafters. Test
-   output will be streamed to your terminal.
+## Usage
+
+Pass a coding request with the `-p` option:
+
+```sh
+./your_program.sh -p "Explain the files in this project"
+```
+
+On Windows, run the module through `uv` if needed:
+
+```powershell
+uv run -m app.main -p "Read README.md and summarize it"
+```
+
+For local testing with the configured free model:
+
+```env
+LOCAL=true
+```
+
+The assistant runs in a tool-calling loop until the model returns a final
+response.
