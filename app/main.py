@@ -2,6 +2,7 @@ import argparse
 import os
 import json
 import sys
+import subprocess
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -38,6 +39,68 @@ def main():
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
     messages = [{"role": "user", "content": args.p}]
+    tools = [{
+            "type": "function",
+            "function": {
+                "name": "Read",
+                "description": "Read and return the contents of a file",
+                "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                    "type": "string",
+                    "description": "The path to the file to read"
+                    }
+                },
+                "required": ["file_path"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "Write",
+                "description": "Write content to a file",
+                "parameters": {
+                "type": "object",
+                "required": ["file_path", "content"],
+                "properties": {
+                    "file_path": {
+                    "type": "string",
+                    "description": "The path of the file to write to"
+                    },
+                    "content": {
+                    "type": "string",
+                    "description": "The content to write to the file"
+                    }
+                }
+                }
+            }
+            },
+        {
+            "type": "function",
+            "function": {
+                "name": "Bash",
+                "description": (
+                    "Execute a shell command in the current project directory. "
+                    "Use Bash commands to find files and run programs. "
+                    "The environment is Windows with Git Bash available. "
+                    "Do not use WSL paths such as /mnt/c/. "
+                    "Use relative paths from the current working directory."
+                ),
+                "parameters": {
+                "type": "object",
+                "required": ["command"],
+                "properties": {
+                    "command": {
+                    "type": "string",
+                    "description": "The command to execute"
+                    }
+                }
+                }
+            }
+        },
+    ]
 
     while True:
         chat = client.chat.completions.create(
@@ -45,45 +108,7 @@ def main():
             # model="anthropic/claude-haiku-4.5",
             messages=messages,
             extra_body={"reasoning": {"enabled": True}},
-            tools=[{
-                    "type": "function",
-                    "function": {
-                        "name": "Read",
-                        "description": "Read and return the contents of a file",
-                        "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "file_path": {
-                            "type": "string",
-                            "description": "The path to the file to read"
-                            }
-                        },
-                        "required": ["file_path"]
-                        }
-                    }
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "Write",
-                        "description": "Write content to a file",
-                        "parameters": {
-                        "type": "object",
-                        "required": ["file_path", "content"],
-                        "properties": {
-                            "file_path": {
-                            "type": "string",
-                            "description": "The path of the file to write to"
-                            },
-                            "content": {
-                            "type": "string",
-                            "description": "The content to write to the file"
-                            }
-                        }
-                        }
-                    }
-                    }
-            ]
+            tools=tools
         )
 
         if not chat.choices or len(chat.choices) == 0:
@@ -93,12 +118,11 @@ def main():
         message = chat.choices[0].message
         messages.append(message.model_dump(exclude_none=True))
 
-        if not message.tool_calls or len(message.tool_calls) == 0:
+        if message.content:
             print(message.content)
-            #uncomment this to see how chains of llm calls is done
-            # for message in messages:
-            #     print(message.get("content"))
-            #     print("#### another message content #####")
+
+        if not message.tool_calls or len(message.tool_calls) == 0:
+            print("Stopping ")
             break
 
         for tool_call in message.tool_calls:
@@ -127,6 +151,19 @@ def main():
                     "tool_call_id": tool_call.id,
                     "content": content
                 })
+            elif function_name == "Bash":
+                command = arguments.get("command")
+                result = subprocess.run(["bash", "-c", command], capture_output=True, text=True)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content":json.dumps({
+                        "stderr": result.stderr,
+                        "stdout": result.stdout,
+                        "returncode": result.returncode,
+                        })
+                    }
+                )
 
             else:
                 raise RuntimeError(f"Unknown function call: {function_name}")
