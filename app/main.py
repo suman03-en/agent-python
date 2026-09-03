@@ -118,11 +118,12 @@ def main():
         message = chat.choices[0].message
         messages.append(message.model_dump(exclude_none=True))
 
-        if message.content:
-            print(message.content)
+        # if message.content:
+        #     print(message.content)
+        
 
         if not message.tool_calls or len(message.tool_calls) == 0:
-            print("Stopping ")
+            print(message.content)
             break
 
         for tool_call in message.tool_calls:
