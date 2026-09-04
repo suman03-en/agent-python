@@ -3,6 +3,7 @@ import os
 import json
 import sys
 import subprocess
+from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -13,6 +14,7 @@ API_KEY = os.getenv("OPENROUTER_API_KEY")
 BASE_URL = os.getenv("OPENROUTER_BASE_URL", default="https://openrouter.ai/api/v1")
 LOCAL = os.getenv("LOCAL", default="False").lower() == "true"
 
+PROJECT_ROOT = Path.cwd().resolve()
 
 # codecrafters uses the claude-haiku-4.5 model, but im using the minimax-m3 model for local testing because it is free and has a similar API. You can change this to any other model you want to use.
 if LOCAL:
@@ -20,13 +22,35 @@ if LOCAL:
 else:
     LLM_MODEL = "anthropic/claude-haiku-4.5"
 
+def resolve_path(file_path: str) -> Path:
+    path = (PROJECT_ROOT / file_path).resolve()
+    if not path.is_relative_to(PROJECT_ROOT):
+        raise ValueError(
+            f"Access denied: {file_path} is outside the project directory."
+        )
+    return path
+
 def read_file(file_path: str) -> str:
-    with open(file_path, "r", encoding="utf-8") as f:
-        return f.read()
+
+    try:
+        path = resolve_path(file_path)
+
+        if not path.is_file():
+            return f"{file_path} does not exist."
+
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except ValueError as e:
+        return str(e)
 
 def write_files(file_path: str, content: str):
-    with open(file_path, 'w', encoding="utf-8") as f:
-        f.write(content)
+    path = resolve_path(file_path)
+    try:
+        with open(path, 'w', encoding="utf-8") as f:
+            f.write(content)
+            return f"Successfully wrote {file_path}"
+    except ValueError as e:
+        return str(e)
 
 def main():
     p = argparse.ArgumentParser()
@@ -43,7 +67,11 @@ def main():
             "type": "function",
             "function": {
                 "name": "Read",
-                "description": "Read and return the contents of a file",
+                "description": (
+                    "Read a file inside the current project directory. "
+                    "file_path must be relative to the project directory. "
+                    "Do not use absolute paths or paths outside the project."
+                ),
                 "parameters": {
                 "type": "object",
                 "properties": {
@@ -60,7 +88,11 @@ def main():
             "type": "function",
             "function": {
                 "name": "Write",
-                "description": "Write content to a file",
+                "description": (
+                    "Write a file inside the current project directory. "
+                    "file_path must be relative to the project directory. "
+                    "Do not use absolute paths or paths outside the project."
+                ),
                 "parameters": {
                 "type": "object",
                 "required": ["file_path", "content"],
@@ -118,12 +150,12 @@ def main():
         message = chat.choices[0].message
         messages.append(message.model_dump(exclude_none=True))
 
-        # if message.content:
-        #     print(message.content)
+        if message.content:
+            print(message.content)
         
 
         if not message.tool_calls or len(message.tool_calls) == 0:
-            print(message.content)
+            # print(message.content)
             break
 
         for tool_call in message.tool_calls:
@@ -154,7 +186,7 @@ def main():
                 })
             elif function_name == "Bash":
                 command = arguments.get("command")
-                result = subprocess.run(["bash", "-c", command], capture_output=True, text=True)
+                result = subprocess.run(["bash", "-c", command], capture_output=True, text=True, cwd=PROJECT_ROOT)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
