@@ -5,6 +5,8 @@ import sys
 import subprocess
 from pathlib import Path
 
+from typing import Dict, Any
+
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -31,6 +33,8 @@ def resolve_path(file_path: str) -> Path:
     return path
 
 def read_file(file_path: str) -> str:
+    if not file_path:
+        raise RuntimeError("file_path argument is required for Read function")
 
     try:
         path = resolve_path(file_path)
@@ -44,13 +48,62 @@ def read_file(file_path: str) -> str:
         return str(e)
 
 def write_files(file_path: str, content: str):
-    path = resolve_path(file_path)
     try:
+        path = resolve_path(file_path)
         with open(path, 'w', encoding="utf-8") as f:
             f.write(content)
             return f"Successfully wrote {file_path}"
     except ValueError as e:
         return str(e)
+    
+def execute_command(command):
+    result = subprocess.run(["bash", "-c", command], capture_output=True, text=True, cwd=PROJECT_ROOT)
+    return json.dumps({
+                        "stderr": result.stderr,
+                        "stdout": result.stdout,
+                        "returncode": result.returncode,
+                        }
+                    )
+
+#tools mapping to functions
+TOOL_MAP = {
+    "Read": read_file,
+    "Write": write_files,
+    "Bash": execute_command
+}
+
+def ask_user_permission(tool_name: str, arguments: dict) -> bool:
+    """CLI prompt to grant or reject tool execution."""
+    print("\n" + "=" * 50)
+    print(f"⚠️  PERMISSION REQUIRED: The agent wants to execute `{tool_name}`")
+    print("Arguments:")
+    print(json.dumps(arguments, indent=2))
+    print("=" * 50)
+    
+    while True:
+        choice = input("Allow this action? [y/N]: ").strip().lower()
+        if choice in ("y", "yes"):
+            return True
+        if choice in ("", "n", "no"):
+            return False
+        print("Please enter 'y' for yes or 'n' for no.")
+
+def dispatch_tool(tool_name: str, arguments: Dict[str, Any]):
+    if tool_name not in TOOL_MAP:
+        return f"Error: Tool '{tool_name}' not found."
+    allowed = ask_user_permission(tool_name, arguments)
+    if not allowed:
+            return (
+                    f"Action Denied: The user declined permission to execute `{tool_name}` "
+                    f"with arguments {json.dumps(arguments)}. "
+                    "Ask the user what they would prefer to do instead or suggest an alternative."
+                    )
+    try:
+        handler = TOOL_MAP[tool_name]
+        return handler(**arguments)
+    except Exception as e:
+        return f"Execution Error: {str(e)}"
+        
 
 def main():
     p = argparse.ArgumentParser()
@@ -162,44 +215,12 @@ def main():
             function_name = tool_call.function.name
             arguments = json.loads(tool_call.function.arguments)
 
-            if function_name == "Read":
-                file_path = arguments.get("file_path")
-                if not file_path:
-                    raise RuntimeError("file_path argument is required for Read function")
-                file_contents = read_file(file_path)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": file_contents
-                })
-
-            elif function_name == "Write":
-                file_path = arguments.get("file_path")
-                content = arguments.get("content")
-                if not file_path:
-                    raise RuntimeError("file_path argument is required for write function")
-                write_files(file_path, content)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": content
-                })
-            elif function_name == "Bash":
-                command = arguments.get("command")
-                result = subprocess.run(["bash", "-c", command], capture_output=True, text=True, cwd=PROJECT_ROOT)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content":json.dumps({
-                        "stderr": result.stderr,
-                        "stdout": result.stdout,
-                        "returncode": result.returncode,
-                        })
-                    }
-                )
-
-            else:
-                raise RuntimeError(f"Unknown function call: {function_name}")
+            output = dispatch_tool(function_name, arguments)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content":output
+            })
         
     # You can use print statements as follows for debugging, they'll be visible when running tests.
     print("Logs from your program will appear here!", file=sys.stderr)
