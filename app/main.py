@@ -4,7 +4,6 @@ import json
 import sys
 import subprocess
 from pathlib import Path
-import time
 
 from typing import Dict, Any
 
@@ -48,9 +47,11 @@ def read_file(file_path: str) -> str:
             return f.read()
     except ValueError as e:
         return str(e)
+    except Exception as e:
+        return f"Error reading file {file_path}: {str(e)}"
 
 
-def write_files(file_path: str, content: str):
+def write_file(file_path: str, content: str):
     try:
         path = resolve_path(file_path)
         with open(path, "w", encoding="utf-8") as f:
@@ -58,6 +59,8 @@ def write_files(file_path: str, content: str):
             return f"Successfully wrote {file_path}"
     except ValueError as e:
         return str(e)
+    except Exception as e:
+        return f"Error writing file {file_path}: {str(e)}"
 
 
 def execute_command(command):
@@ -78,7 +81,7 @@ def execute_command(command):
 
 
 # tools mapping to functions
-TOOL_MAP = {"Read": read_file, "Write": write_files, "Bash": execute_command}
+TOOL_MAP = {"Read": read_file, "Write": write_file, "Bash": execute_command}
 
 TOOL_SCHEMAS = [
     {
@@ -190,12 +193,17 @@ def dispatch_tool(tool_name: str, arguments: Dict[str, Any]):
         return f"Execution Error: {str(e)}"
 
 
-def run_agent_loop(client: OpenAI, prompt: str):
+
+def run_agent_loop(client: OpenAI, prompt: str, max_iterations: int = 10):
     """Run the agent loop until the agent has no more tool calls to make."""
-    
+
     messages = [{"role": "user", "content": prompt}]
 
+    iteration = 0
     while True:
+        if iteration >= max_iterations:
+            return "Maximum iterations reached."
+        
         chat = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
@@ -227,6 +235,8 @@ def run_agent_loop(client: OpenAI, prompt: str):
                 {"role": "tool", "tool_call_id": tool_call.id, "content": output}
             )
 
+        iteration += 1
+
 
 def main():
     p = argparse.ArgumentParser()
@@ -240,7 +250,7 @@ def main():
     print("\n" + "=" * 50)
     print("AI Agent")
     print("\n" + "=" * 50)
-    time.sleep(1)
+
     run_agent_loop(client, args.p)
 
 
