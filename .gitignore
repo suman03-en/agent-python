@@ -8,6 +8,7 @@ __pycache__/
 
 #extra files
 demo1.py
+practice.py
 
 # Distribution / packaging
 .Python

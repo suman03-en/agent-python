@@ -4,6 +4,7 @@ import json
 import sys
 import subprocess
 from pathlib import Path
+import ast #abstract syntax tree module for parsing Python code
 
 from typing import Dict, Any
 
@@ -41,14 +42,26 @@ def read_file(file_path: str) -> str:
         path = resolve_path(file_path)
 
         if not path.is_file():
-            return f"{file_path} does not exist."
-
+            return {
+                "success": False,
+                "message": f"{file_path} does not exist."
+            }
         with open(path, "r", encoding="utf-8") as f:
-            return f.read()
+            result = f.read()
+        return {
+            "success": True,
+            "message": result
+        }
     except ValueError as e:
-        return str(e)
+        return {
+            "success": False,
+            "message": str(e)
+        }
     except Exception as e:
-        return f"Error reading file {file_path}: {str(e)}"
+        return {
+            "success": False,
+            "message": f"Error reading file {file_path}: {str(e)}"
+        }
 
 
 def write_file(file_path: str, content: str):
@@ -56,12 +69,40 @@ def write_file(file_path: str, content: str):
         path = resolve_path(file_path)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
-            return f"Successfully wrote {file_path}"
+            return {
+                "success": True,
+                "message": f"Successfully wrote {file_path}"
+            }
     except ValueError as e:
-        return str(e)
+        return {
+            "success": False,
+            "message": str(e)
+        }
     except Exception as e:
-        return f"Error writing file {file_path}: {str(e)}"
+        return {
+            "success": False,
+            "message": f"Error writing file {file_path}: {str(e)}"
+        }
 
+def find_function_in_file(file_path: str, function_name: str):
+    file_content = read_file(file_path)
+    if not file_content.get("success"):
+        return {
+            "success": False,
+            "message": file_content.get("message", "Unknown error reading file.")
+        }
+
+    tree = ast.parse(file_content.get("message", ""))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == function_name:
+            return {
+                "success": True,
+                "message": {
+                    "function_name": node.name,
+                    "line_number": node.lineno,
+                    "end_line_number": node.end_lineno
+                }
+            }
 
 def execute_command(command):
     result = subprocess.run(
@@ -71,17 +112,15 @@ def execute_command(command):
         cwd=PROJECT_ROOT,
         timeout=30,
     )
-    return json.dumps(
-        {
+    return {
             "stderr": result.stderr,
             "stdout": result.stdout,
             "returncode": result.returncode,
         }
-    )
 
 
 # tools mapping to functions
-TOOL_MAP = {"Read": read_file, "Write": write_file, "Bash": execute_command}
+TOOL_MAP = {"Read": read_file, "Write": write_file, "Bash": execute_command, "ReadFunction": find_function_in_file}
 
 TOOL_SCHEMAS = [
     {
@@ -148,6 +187,40 @@ TOOL_SCHEMAS = [
                     "command": {
                         "type": "string",
                         "description": "The command to execute",
+                    }
+                },
+            },
+        },
+    },
+
+    {
+        "type": "function",
+        "function": {
+            "name": "ReadFunction",
+            "description": """
+                        Read a specific function from a source file.
+
+                        This tool uses AST parsing to locate the requested function and
+                        returns ONLY that function's source code.
+
+                        Use this tool when you need to inspect a specific function.
+                        Do NOT call Read on the same file afterward just to obtain the
+                        function source, because ReadFunction already provides it.
+
+                        If additional surrounding context is genuinely required, then
+                        Read may be used separately.
+                    """,
+            "parameters": {
+                "type": "object",
+                "required": ["file_path", "function_name"],
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "The path of the file to read from",
+                    },
+                    "function_name": {
+                        "type": "string",
+                        "description": "The name of the function to find",
                     }
                 },
             },
@@ -232,7 +305,7 @@ def run_agent_loop(client: OpenAI, prompt: str, max_iterations: int = 10):
             output = dispatch_tool(tool_name, arguments)
 
             messages.append(
-                {"role": "tool", "tool_call_id": tool_call.id, "content": output}
+                {"role": "tool", "tool_call_id": tool_call.id, "content": json.dumps(output)}
             )
 
         iteration += 1
@@ -247,9 +320,17 @@ def main():
         sys.exit("Error: API Key is not set.")
 
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
-    print("\n" + "=" * 50)
-    print("AI Agent")
-    print("\n" + "=" * 50)
+    logo = r"""
+                    █████╗ ██╗       █████╗   ██████╗ ███████╗███╗   ██╗████████╗
+                    ██╔══██╗██║      ██╔══██╗ ██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝
+                    ███████║██║      ███████║ ██║  ███╗█████╗  ██╔██╗ ██║   ██║
+                    ██╔══██║██║      ██╔══██║ ██║   ██║██╔══╝  ██║╚██╗██║   ██║
+                    ██║  ██║███ ██║  ██║ ╚██████╔╝███████╗██║ ╚████║   ██║
+                    ╚═╝  ╚═╝╚══════╝ ╚═╝  ╚═╝  ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝
+
+                                            by Suman
+     """
+    print(logo)
 
     run_agent_loop(client, args.p)
 
