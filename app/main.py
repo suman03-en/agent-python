@@ -4,7 +4,7 @@ import json
 import sys
 import subprocess
 from pathlib import Path
-import ast #abstract syntax tree module for parsing Python code
+import ast  # abstract syntax tree module for parsing Python code
 
 from typing import Dict, Any
 
@@ -34,7 +34,7 @@ def resolve_path(file_path: str) -> Path:
     return path
 
 
-def read_file(file_path: str) -> str:
+def read_file(file_path: str) -> Dict[str, Any]:
     if not file_path:
         raise RuntimeError("file_path argument is required for Read function")
 
@@ -42,54 +42,40 @@ def read_file(file_path: str) -> str:
         path = resolve_path(file_path)
 
         if not path.is_file():
-            return {
-                "success": False,
-                "message": f"{file_path} does not exist."
-            }
+            return {"success": False, "message": f"{file_path} does not exist."}
         with open(path, "r", encoding="utf-8") as f:
             result = f.read()
-        return {
-            "success": True,
-            "message": result
-        }
+        return {"success": True, "message": result}
     except ValueError as e:
-        return {
-            "success": False,
-            "message": str(e)
-        }
+        return {"success": False, "message": str(e)}
     except Exception as e:
         return {
             "success": False,
-            "message": f"Error reading file {file_path}: {str(e)}"
+            "message": f"Error reading file {file_path}: {str(e)}",
         }
 
 
-def write_file(file_path: str, content: str):
+def write_file(file_path: str, content: str) -> Dict[str, Any]:
     try:
         path = resolve_path(file_path)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
-            return {
-                "success": True,
-                "message": f"Successfully wrote {file_path}"
-            }
+            return {"success": True, "message": f"Successfully wrote {file_path}"}
     except ValueError as e:
-        return {
-            "success": False,
-            "message": str(e)
-        }
+        return {"success": False, "message": str(e)}
     except Exception as e:
         return {
             "success": False,
-            "message": f"Error writing file {file_path}: {str(e)}"
+            "message": f"Error writing file {file_path}: {str(e)}",
         }
 
-def find_function_in_file(file_path: str, function_name: str):
+
+def find_function_in_file(file_path: str, function_name: str) -> Dict[str, Any]:
     file_content = read_file(file_path)
     if not file_content.get("success"):
         return {
             "success": False,
-            "message": file_content.get("message", "Unknown error reading file.")
+            "message": file_content.get("message", "Unknown error reading file."),
         }
 
     tree = ast.parse(file_content.get("message", ""))
@@ -100,9 +86,46 @@ def find_function_in_file(file_path: str, function_name: str):
                 "message": {
                     "function_name": node.name,
                     "line_number": node.lineno,
-                    "end_line_number": node.end_lineno
-                }
+                    "end_line_number": node.end_lineno,
+                },
             }
+
+def patch_file(file_path: str, search_block: str, replacement_block: str) -> Dict[str, Any]:
+    try:
+        path = resolve_path(file_path=file_path)
+        if not path.exists():
+            return {"success": False, "message": f"{file_path} does not exist."}
+        content = read_file(file_path=file_path)
+        if not content.get("success"):
+            return {
+                "success": False,
+                "message": content.get("message", "Unknown error reading file."),
+            }
+        normalized_content = content["message"].replace("\r\n", "\n")
+        normalized_search = search_block.replace("\r\n", "\n")
+        normalized_replacement = replacement_block.replace("\r\n", "\n")
+ 
+        match_count = normalized_content.count(normalized_search)
+        if match_count == 0:
+            return {
+                "success": False,
+                "message": f"Search block not found in {file_path}.",
+            }
+        if match_count > 1:
+            return {
+                "success": False,
+                "message": f"Search block found {match_count} times in {file_path}. resolve it first before patching.",
+            }
+        new_content = normalized_content.replace(normalized_search, normalized_replacement)
+        write_result = write_file(file_path=file_path, content=new_content)
+        if not write_result.get("success"):
+            return {
+                "success": False,
+                "message": write_result.get("message", "Unknown error writing file."),
+            }
+    except ValueError as e:
+        return {"success": False, "message": str(e)}
+
 
 def execute_command(command):
     result = subprocess.run(
@@ -110,17 +133,23 @@ def execute_command(command):
         capture_output=True,
         text=True,
         cwd=PROJECT_ROOT,
-        timeout=30,
+        timeout=100,
     )
     return {
-            "stderr": result.stderr,
-            "stdout": result.stdout,
-            "returncode": result.returncode,
-        }
+        "stderr": result.stderr,    
+        "stdout": result.stdout,
+        "returncode": result.returncode,
+    }
 
 
 # tools mapping to functions
-TOOL_MAP = {"Read": read_file, "Write": write_file, "Bash": execute_command, "ReadFunction": find_function_in_file}
+TOOL_MAP = {
+    "Read": read_file,
+    "Write": write_file,
+    "WritePatch": patch_file,
+    "Bash": execute_command,
+    "ReadFunction": find_function_in_file,
+}
 
 TOOL_SCHEMAS = [
     {
@@ -192,7 +221,6 @@ TOOL_SCHEMAS = [
             },
         },
     },
-
     {
         "type": "function",
         "function": {
@@ -221,7 +249,36 @@ TOOL_SCHEMAS = [
                     "function_name": {
                         "type": "string",
                         "description": "The name of the function to find",
-                    }
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "PatchFile",
+            "description": """
+                    Replace an exact block of text in a file with new code.
+                    If additional surrounding context is genuinely required, then
+                    Read may be used separately.
+                    """,
+            "parameters": {
+                "type": "object",
+                "required": ["file_path", "search_block", "replacement_block"],
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "The path of the file to patch",
+                    },
+                    "search_block": {
+                        "type": "string",
+                        "description": "The block of text to search for",
+                    },
+                    "replacement_block": {
+                        "type": "string",
+                        "description": "The block of text to replace the search block with",
+                    },
                 },
             },
         },
@@ -237,6 +294,7 @@ def ask_user_permission(tool_name: str, arguments: dict) -> bool:
     print(json.dumps(arguments, indent=2))
     print("=" * 50)
 
+    #loop until user provides valid input
     while True:
         choice = input("Allow this action? [y/N]: ").strip().lower()
         if choice in ("y", "yes"):
@@ -247,8 +305,7 @@ def ask_user_permission(tool_name: str, arguments: dict) -> bool:
 
 
 def dispatch_tool(tool_name: str, arguments: Dict[str, Any]):
-    """dispatch the tool call to the appropriate function after asking for user permission.
-    """
+    """dispatch the tool call to the appropriate function after asking for user permission."""
 
     if tool_name not in TOOL_MAP:
         return f"Error: Tool '{tool_name}' not found."
@@ -266,7 +323,6 @@ def dispatch_tool(tool_name: str, arguments: Dict[str, Any]):
         return f"Execution Error: {str(e)}"
 
 
-
 def run_agent_loop(client: OpenAI, prompt: str, max_iterations: int = 10):
     """Run the agent loop until the agent has no more tool calls to make."""
 
@@ -276,7 +332,7 @@ def run_agent_loop(client: OpenAI, prompt: str, max_iterations: int = 10):
     while True:
         if iteration >= max_iterations:
             return "Maximum iterations reached."
-        
+
         chat = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
@@ -305,7 +361,11 @@ def run_agent_loop(client: OpenAI, prompt: str, max_iterations: int = 10):
             output = dispatch_tool(tool_name, arguments)
 
             messages.append(
-                {"role": "tool", "tool_call_id": tool_call.id, "content": json.dumps(output)}
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": json.dumps(output),
+                }
             )
 
         iteration += 1
