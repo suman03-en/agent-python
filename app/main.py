@@ -78,17 +78,19 @@ def find_function_in_file(file_path: str, function_name: str) -> Dict[str, Any]:
             "message": file_content.get("message", "Unknown error reading file."),
         }
 
-    tree = ast.parse(file_content.get("message", ""))
+    source_text = file_content.get("message", "")
+    tree = ast.parse(source_text)
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == function_name:
+            source = ast.get_source_segment(source_text, node)
             return {
                 "success": True,
-                "message": {
-                    "function_name": node.name,
-                    "line_number": node.lineno,
-                    "end_line_number": node.end_lineno,
-                },
+                "message": source,
             }
+    return {
+        "success": False,
+        "message": f"Function '{function_name}' not found in {file_path}.",
+    }
 
 def patch_file(file_path: str, search_block: str, replacement_block: str) -> Dict[str, Any]:
     try:
@@ -123,30 +125,53 @@ def patch_file(file_path: str, search_block: str, replacement_block: str) -> Dic
                 "success": False,
                 "message": write_result.get("message", "Unknown error writing file."),
             }
+        return {
+            "success": True,
+            "message": "File patched successfully",
+        }
     except ValueError as e:
         return {"success": False, "message": str(e)}
 
 
 def execute_command(command):
-    result = subprocess.run(
-        ["bash", "-c", command],
-        capture_output=True,
-        text=True,
-        cwd=PROJECT_ROOT,
-        timeout=100,
-    )
-    return {
-        "stderr": result.stderr,    
-        "stdout": result.stdout,
-        "returncode": result.returncode,
-    }
+    try:
+        result = subprocess.run(
+            ["bash", "-c", command],
+            capture_output=True,
+            text=True,
+            cwd=PROJECT_ROOT,
+            timeout=100,
+        )
+        return {
+            "stderr": result.stderr,
+            "stdout": result.stdout,
+            "returncode": result.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "stderr": f"Command timed out after 100 seconds: {command}",
+            "stdout": "",
+            "returncode": -1,
+        }
+    except FileNotFoundError:
+        return {
+            "stderr": "bash not found on PATH. Ensure Git Bash or WSL is installed.",
+            "stdout": "",
+            "returncode": -1,
+        }
+    except Exception as e:
+        return {
+            "stderr": f"Error executing command: {str(e)}",
+            "stdout": "",
+            "returncode": -1,
+        }
 
 
 # tools mapping to functions
 TOOL_MAP = {
     "Read": read_file,
     "Write": write_file,
-    "WritePatch": patch_file,
+    "PatchFile": patch_file,
     "Bash": execute_command,
     "ReadFunction": find_function_in_file,
 }
