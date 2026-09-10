@@ -16,7 +16,7 @@ PROJECT_ROOT = Path.cwd().resolve()
 # for local testing because it is free and has a similar API.
 # You can change this to any other model you want to use.
 if LOCAL:
-    LLM_MODEL = "minimax/minimax-m3:free"
+    LLM_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 else:
     LLM_MODEL = "anthropic/claude-haiku-4.5"
 
