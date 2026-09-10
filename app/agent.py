@@ -8,8 +8,18 @@ from app.config import LLM_MODEL, LOCAL
 from app.prompts import SYSTEM_PROMPT
 from app.tools import TOOL_MAP, TOOL_SCHEMAS
 from app.permissions import ask_user_permission
+from app.index import ProjectIndex
+from app.tools.index_tools import set_index
 
 logger = logging.getLogger("ai_agent")
+
+# Module-level index reference so filesystem tools can trigger updates
+_project_index: ProjectIndex | None = None
+
+
+def get_index() -> ProjectIndex | None:
+    """Return the current project index (used by filesystem write hooks)."""
+    return _project_index
 
 
 def dispatch_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -30,6 +40,17 @@ def dispatch_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         logger.debug(f"Arguments: {json.dumps(arguments)}")
         result = handler(**arguments)
         logger.debug(f"Result: {json.dumps(result, default=str)[:200]}")
+
+        # Trigger index update for file-modifying tools
+        if tool_name in ("Write", "PatchFile") and _project_index is not None:
+            file_path = arguments.get("file_path")
+            if file_path:
+                try:
+                    _project_index.update([file_path])
+                    logger.info(f"Index updated for: {file_path}")
+                except Exception as e:
+                    logger.warning(f"Index update failed for {file_path}: {e}")
+
         return result
     except Exception as e:
         logger.error(f"Tool execution error: {tool_name} — {e}")
@@ -38,9 +59,24 @@ def dispatch_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
 
 def run_agent_loop(client: OpenAI, prompt: str, max_iterations: int = 10):
     """Run the agent loop until the agent has no more tool calls to make."""
+    global _project_index
+
+    # Build or load the project-wide AST index
+    logger.info("Building project index...")
+    _project_index = ProjectIndex()
+    _project_index.build_or_load()
+    set_index(_project_index)
+
+    # Inject a compact project overview into the system prompt
+    overview = _project_index.project_overview()
+    enhanced_prompt = (
+        SYSTEM_PROMPT
+        + "\n\n## Current Project Structure\n\n"
+        + overview
+    )
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": enhanced_prompt},
         {"role": "user", "content": prompt},
     ]
 
@@ -91,3 +127,10 @@ def run_agent_loop(client: OpenAI, prompt: str, max_iterations: int = 10):
             )
 
         iteration += 1
+
+    # Save the index at the end of the session
+    if _project_index is not None:
+        try:
+            _project_index.serialize()
+        except Exception as e:
+            logger.warning(f"Failed to save index: {e}")
