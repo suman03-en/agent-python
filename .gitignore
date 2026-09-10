@@ -8,6 +8,10 @@ __pycache__/
 
 #extra files
 demo1.py
+
+# AI Agent index & sessions
+.ai_index.json
+.ai_sessions/
 practice.py
 
 # Distribution / packaging
